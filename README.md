@@ -287,3 +287,5 @@ fun `HU-02 Implementar persistencia y contrato de repositorio`() {
 
 ---
 *Este proyecto es de carácter académico para el SENA CTMA.*
+#   G e s t i o n - P r e s t a m o s - d e - M a t e r i a l e s  
+ 
