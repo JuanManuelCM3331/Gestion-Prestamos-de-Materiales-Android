@@ -20,23 +20,52 @@ import org.junit.Test
 
 /**
  * Suite de Pruebas Unitarias para validación de Historias de Usuario (HU-01 a HU-15)
- * Implementada con Fakes manuales para máxima compatibilidad.
+ * + Validaciones de Escalabilidad (Catálogo, Stock, Préstamos, Cancelación/Entrega y Reglas de Eliminación).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class UserStoriesValidationTest {
 
     private lateinit var repository: LocalPrestamoRepository
     private val testDispatcher = UnconfinedTestDispatcher()
-    
-    // Fakes para la persistencia
+
     private class FakeEquipoDao : EquipoDao {
         var equipos = mutableListOf<EquipoEntity>()
         override fun obtenerTodos(): Flow<List<EquipoEntity>> = flowOf(equipos)
         override suspend fun obtenerPorId(id: Int): EquipoEntity? = equipos.find { it.id == id }
-        override suspend fun insertarEquipos(equipos: List<EquipoEntity>) { this.equipos.addAll(equipos) }
+        override suspend fun insertarEquipos(equipos: List<EquipoEntity>) {
+            equipos.forEach { eq ->
+                val idx = this.equipos.indexOfFirst { it.id == eq.id && eq.id != 0 }
+                if (idx != -1) this.equipos[idx] = eq else this.equipos.add(eq)
+            }
+        }
+        override suspend fun insertarEquipo(equipo: EquipoEntity): Long {
+            val id = if (equipo.id == 0) (equipos.maxOfOrNull { it.id } ?: 0) + 1 else equipo.id
+            val nuevo = equipo.copy(id = id)
+            val idx = equipos.indexOfFirst { it.id == id }
+            if (idx != -1) equipos[idx] = nuevo else equipos.add(nuevo)
+            return id.toLong()
+        }
         override suspend fun actualizarEquipo(equipo: EquipoEntity) {
             val index = equipos.indexOfFirst { it.id == equipo.id }
             if (index != -1) equipos[index] = equipo
+        }
+        override suspend fun actualizarStock(
+            equipoId: Int,
+            stockTotal: Int,
+            stockDisponible: Int,
+            estado: EstadoEquipo
+        ) {
+            val index = equipos.indexOfFirst { it.id == equipoId }
+            if (index != -1) {
+                equipos[index] = equipos[index].copy(
+                    stockTotal = stockTotal,
+                    stockDisponible = stockDisponible,
+                    estado = estado
+                )
+            }
+        }
+        override suspend fun eliminarPorId(id: Int) {
+            equipos.removeAll { it.id == id }
         }
     }
 
@@ -44,10 +73,21 @@ class UserStoriesValidationTest {
         var solicitudes = mutableListOf<SolicitudEntity>()
         override fun obtenerTodas(): Flow<List<SolicitudEntity>> = flowOf(solicitudes)
         override suspend fun obtenerPorId(id: Int): SolicitudEntity? = solicitudes.find { it.id == id }
-        override suspend fun insertarSolicitud(solicitud: SolicitudEntity) { solicitudes.add(solicitud.copy(id = solicitudes.size + 1)) }
+        override suspend fun insertarSolicitud(solicitud: SolicitudEntity) {
+            val id = if (solicitud.id == 0) solicitudes.size + 1 else solicitud.id
+            solicitudes.add(solicitud.copy(id = id))
+        }
+        override suspend fun insertarSolicitudes(solicitudes: List<SolicitudEntity>) {
+            this.solicitudes.clear()
+            this.solicitudes.addAll(solicitudes)
+        }
         override suspend fun actualizarSolicitud(solicitud: SolicitudEntity) {
             val index = solicitudes.indexOfFirst { it.id == solicitud.id }
             if (index != -1) solicitudes[index] = solicitud
+        }
+        override suspend fun actualizarUnreadCount(prestamoId: Int, unreadCount: Int) {
+            val index = solicitudes.indexOfFirst { it.id == prestamoId }
+            if (index != -1) solicitudes[index] = solicitudes[index].copy(unreadCount = unreadCount)
         }
     }
 
@@ -79,7 +119,6 @@ class UserStoriesValidationTest {
 
     @Test
     fun `HU-03 Gestionar el estado unidireccional StateFlow`() {
-        // Validación lógica del patrón MVVM
         assertTrue(true)
     }
 
@@ -112,9 +151,21 @@ class UserStoriesValidationTest {
     fun `HU-07 Consultar y gestionar mis prestamos activos`() {
         runTest {
             repository.inicializarEquipos()
-            repository.crearSolicitud(SolicitudPrestamo(0, 1, "A", "Proposito largo", 1, EstadoSolicitud.SOLICITADA))
+            repository.crearSolicitud(
+                SolicitudPrestamo(
+                    id = 0,
+                    equipoId = 1,
+                    ambienteDestino = "A",
+                    proposito = "Proposito largo",
+                    duracionHoras = 1,
+                    estado = EstadoSolicitud.ACTIVO,
+                    cantidad = 2
+                )
+            )
             val solicitudes = repository.obtenerSolicitudes().first()
             assertEquals(1, solicitudes.size)
+            val eqDespues = repository.obtenerEquipo(1)
+            assertEquals(3, eqDespues?.stockDisponible)
         }
     }
 
@@ -125,7 +176,6 @@ class UserStoriesValidationTest {
 
     @Test
     fun `HU-09 Prevenir duplicidad en las solicitudes`() {
-        // Validamos la lógica de negocio RN-05
         assertTrue(true)
     }
 
@@ -147,7 +197,7 @@ class UserStoriesValidationTest {
 
     @Test
     fun `HU-12 Asegurar el cumplimiento tecnico de la arquitectura`() {
-        assertTrue(repository is LocalPrestamoRepository)
+        assertNotNull(repository)
     }
 
     @Test
@@ -165,5 +215,40 @@ class UserStoriesValidationTest {
     @Test
     fun `HU-15 Retroalimentacion tactil del sistema`() {
         assertTrue(true)
+    }
+
+    @Test
+    fun `Fase 2 y 3 - Eliminacion logica, bloqueo permanente con prestamo activo y devolucion de stock`() {
+        runTest {
+            repository.inicializarEquipos()
+            // 1. Solicitar 2 unidades del equipo 1 (stock inicial = 5)
+            val resPrestamo = repository.crearSolicitud(
+                SolicitudPrestamo(
+                    id = 0,
+                    equipoId = 1,
+                    ambienteDestino = "Ambiente 101",
+                    proposito = "Práctica de electrónica industrial",
+                    estado = EstadoSolicitud.ACTIVO,
+                    cantidad = 2
+                )
+            )
+            assertTrue(resPrestamo.isSuccess)
+            assertEquals(3, repository.obtenerEquipo(1)?.stockDisponible)
+
+            // 2. Intentar eliminar permanentemente con préstamo ACTIVO -> debe fallar
+            val resDeleteActivo = repository.eliminarEquipoPermanente(1)
+            assertTrue(resDeleteActivo.isFailure)
+
+            // 3. Cancelar el préstamo -> las 2 unidades regresan al stock (5)
+            val prestamoId = repository.obtenerSolicitudes().first().first().id
+            val resCancelar = repository.cancelarSolicitud(prestamoId)
+            assertTrue(resCancelar.isSuccess)
+            assertEquals(5, repository.obtenerEquipo(1)?.stockDisponible)
+
+            // 4. Ahora sin préstamos activos, el borrado permanente sí es permitido
+            val resDeleteOk = repository.eliminarEquipoPermanente(1)
+            assertTrue(resDeleteOk.isSuccess)
+            assertNull(repository.obtenerEquipo(1))
+        }
     }
 }

@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt.android)
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.0"
 }
 
@@ -13,18 +14,18 @@ android {
         applicationId = "com.example.prestamo_lab_ctma"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
+        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:3000/\"")
     }
 
     buildTypes {
         getByName("release") {
-            // minifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -37,6 +38,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -56,11 +58,17 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    
-    // Room
+
+    // Hilt (DI)
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.androidx.hilt.navigation.compose)
+
+    // Room (Caché Offline SSOT)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
@@ -71,17 +79,24 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.camera.extensions)
-    
+
     // Coil
     implementation(libs.coil.compose)
-    
+
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
-    // Retrofit
+    // Retrofit & OkHttp
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
-    
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.logging)
+
+    // Socket.IO Client (Tiempo Real)
+    implementation(libs.socket.io.client) {
+        exclude(group = "org.json", module = "json")
+    }
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockito.core)
