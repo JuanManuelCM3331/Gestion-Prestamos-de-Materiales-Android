@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -44,7 +44,11 @@ fun SolicitarPrestamoScreen(
     onCapturePhoto: () -> Unit,
     onPhotoSelected: (String) -> Unit,
     onGuardar: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onCantidadChange: (String) -> Unit = {},
+    onFechaDevolucionChange: (String) -> Unit = {},
+    onNombreSolicitanteChange: (String) -> Unit = {},
+    onDocumentoSolicitanteChange: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -61,12 +65,9 @@ fun SolicitarPrestamoScreen(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            Log.d("SolicitarPrestamo", "Selected URI: $uri")
-            val cachedPath = copyUriToCache(context, uri)
+            val cachedPath = copyUriToStorage(context, uri)
             if (cachedPath != null) {
                 onPhotoSelected(cachedPath)
-            } else {
-                Log.e("SolicitarPrestamo", "Failed to cache URI: $uri")
             }
         }
     }
@@ -74,7 +75,7 @@ fun SolicitarPrestamoScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Solicitar Préstamo") },
+                title = { Text("Formulario de Préstamo Inmediato") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
@@ -89,43 +90,90 @@ fun SolicitarPrestamoScreen(
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             if (equipo == null) {
                 Text("Error: Equipo no encontrado.")
             } else {
-                Text("Solicitando: ${equipo.nombre}", style = MaterialTheme.typography.titleLarge)
-                
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            text = "Equipo: ${equipo.nombre}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Existencias disponibles ahora mismo: ${equipo.stockDisponible} de ${equipo.stockTotal} unidades",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = "Al enviar se activa inmediatamente el préstamo, se descuenta el stock, se abre el chat y se genera el Certificado PNG.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = formState.cantidad,
+                    onValueChange = onCantidadChange,
+                    label = { Text("Cantidad de unidades a solicitar (máx. ${equipo.stockDisponible}) *") },
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = formState.errorCantidad != null,
+                    supportingText = { formState.errorCantidad?.let { Text(it) } },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = formState.fechaDevolucionEstimada,
+                    onValueChange = onFechaDevolucionChange,
+                    label = { Text("Fecha y hora de devolución estimada (YYYY-MM-DD HH:mm) *") },
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = formState.errorFecha != null,
+                    supportingText = { formState.errorFecha?.let { Text(it) } },
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = formState.nombreSolicitante,
+                    onValueChange = onNombreSolicitanteChange,
+                    label = { Text("Nombre completo del solicitante *") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = formState.documentoSolicitante,
+                    onValueChange = onDocumentoSolicitanteChange,
+                    label = { Text("Documento / Ficha del solicitante") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
                 OutlinedTextField(
                     value = formState.ambienteDestino,
                     onValueChange = onAmbienteChange,
-                    label = { Text("Ambiente o destino") },
+                    label = { Text("Ambiente o laboratorio destino *") },
                     modifier = Modifier.fillMaxWidth(),
                     isError = formState.errorAmbiente != null,
-                    supportingText = { formState.errorAmbiente?.let { Text(it) } }
+                    supportingText = { formState.errorAmbiente?.let { Text(it) } },
+                    singleLine = true
                 )
-                
+
                 OutlinedTextField(
                     value = formState.proposito,
                     onValueChange = onPropositoChange,
-                    label = { Text("Propósito") },
+                    label = { Text("Motivo / Observaciones (10 a 180 caracteres) *") },
                     modifier = Modifier.fillMaxWidth(),
                     isError = formState.errorProposito != null,
                     supportingText = { formState.errorProposito?.let { Text(it) } },
                     minLines = 3
                 )
-                
-                OutlinedTextField(
-                    value = formState.duracionHoras,
-                    onValueChange = onDuracionChange,
-                    label = { Text("Duración en horas (1-8)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    isError = formState.errorDuracion != null,
-                    supportingText = { formState.errorDuracion?.let { Text(it) } },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
 
-                Text("Evidencia Fotográfica:", style = MaterialTheme.typography.titleMedium)
+                Text("Evidencia Fotográfica (Opcional):", style = MaterialTheme.typography.titleSmall)
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -133,7 +181,8 @@ fun SolicitarPrestamoScreen(
                 ) {
                     Button(
                         onClick = {
-                            val permissionCheckResult = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+                            val permissionCheckResult =
+                                ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
                             if (permissionCheckResult == PackageManager.PERMISSION_GRANTED) {
                                 onCapturePhoto()
                             } else {
@@ -172,7 +221,7 @@ fun SolicitarPrestamoScreen(
                                 painter = rememberAsyncImagePainter(File(formState.photoPath)),
                                 contentDescription = "Vista previa de evidencia",
                                 modifier = Modifier
-                                    .size(80.dp)
+                                    .size(72.dp)
                                     .clip(RoundedCornerShape(8.dp)),
                                 contentScale = ContentScale.Crop
                             )
@@ -193,22 +242,22 @@ fun SolicitarPrestamoScreen(
                         }
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Button(
                     onClick = onGuardar,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = formState.puedeGuardar && !guardando
+                    enabled = formState.puedeGuardar && !guardando && equipo.stockDisponible > 0 && !equipo.eliminado
                 ) {
                     if (guardando) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(22.dp),
                             color = MaterialTheme.colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Text("Guardar solicitud")
+                        Text("Confirmar Préstamo y Generar Certificado")
                     }
                 }
             }
@@ -216,27 +265,18 @@ fun SolicitarPrestamoScreen(
     }
 }
 
-private fun copyUriToCache(context: Context, uri: Uri): String? {
+private fun copyUriToStorage(context: Context, uri: Uri): String? {
     return try {
-        Log.d("SolicitarPrestamo", "Copying URI to cache: $uri")
         if (uri.scheme == "file" && uri.path != null) {
             return uri.path
         }
-        val inputStream = context.contentResolver.openInputStream(uri)
-        if (inputStream == null) {
-            Log.e("SolicitarPrestamo", "Failed to open input stream for $uri")
-            return null
+        val dir = File(context.filesDir, "evidencias").apply { mkdirs() }
+        val file = File(dir, "evidencia_${System.currentTimeMillis()}.jpg")
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            file.outputStream().use { out -> input.copyTo(out) }
         }
-        val file = File(context.cacheDir, "evidencia_${System.currentTimeMillis()}.jpg")
-        file.outputStream().use { outputStream ->
-            inputStream.use { input ->
-                input.copyTo(outputStream)
-            }
-        }
-        Log.d("SolicitarPrestamo", "Successfully cached file at: ${file.absolutePath}")
         file.absolutePath
-    } catch (e: Exception) {
-        Log.e("SolicitarPrestamo", "Error copying URI to cache", e)
+    } catch (_: Exception) {
         null
     }
 }
